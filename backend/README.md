@@ -14,6 +14,8 @@ python -m venv venv
 # Windows
 venv\Scripts\activate
 
+.\venv\Scripts\Activate.ps1; uvicorn main:app --reload --port 8000
+
 # Linux/Mac
 source venv/bin/activate
 ```

@@ -48,7 +48,7 @@ export function GenerateForm({ onGenerate, isLoading }: GenerateFormProps) {
   };
 
   return (
-    <div className="rounded-3xl bg-white p-8 shadow-xl border-2 border-gray-200 card-hover slide-up">
+    <div className="glass-panel rounded-2xl p-8 card-hover slide-up">
       <form onSubmit={handleSubmit}>
         <div className="grid gap-6 md:grid-cols-2">
           <Input
@@ -82,7 +82,7 @@ export function GenerateForm({ onGenerate, isLoading }: GenerateFormProps) {
           />
         </div>
 
-        <Button type="submit" isLoading={isLoading} className="mt-8">
+        <Button type="submit" isLoading={isLoading} className="mt-8 w-full">
           Generate Questions
         </Button>
 

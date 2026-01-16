@@ -29,8 +29,12 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 text-gray-900">
-      <div className="mx-auto max-w-5xl px-6 py-12">
+    <main className="min-h-screen relative bg-background selection:bg-primary/20 selection:text-primary">
+      {/* Subtle Grid Pattern */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent pointer-events-none" />
+
+      <div className="relative z-10 mx-auto max-w-5xl px-6 py-12 md:py-24">
         <PageHeader />
 
         <div className="mt-16">
@@ -45,7 +49,7 @@ export default function Home() {
 
         {data && <ResultsSection data={data} />}
 
-        <footer className="mt-24 text-center text-xs text-gray-500">
+        <footer className="mt-24 text-center text-sm text-slate-500">
           <p>Practice tool only — not for live exams.</p>
           <p className="mt-1">© 2026 Academic A+ Plus. All rights reserved.</p>
         </footer>
