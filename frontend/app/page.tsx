@@ -1,19 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "./components/PageHeader";
 import { GenerateForm } from "./components/GenerateForm";
 import { ResultsSection } from "./components/ResultsSection";
 import { Alert } from "./components/ui/Alert";
-import { generateQuestions } from "./lib/api";
+import { generateQuestions, getToken, removeToken, ApiError } from "./lib/api";
 import type { GenerateRequest, GenerateResponse } from "./types";
 
 export default function Home() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<GenerateResponse | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    // Check auth on mount
+    const token = getToken();
+    setIsAuthenticated(!!token);
+    setAuthLoading(false);
+  }, []);
+
+  function handleLogout() {
+    removeToken();
+    setIsAuthenticated(false);
+    setData(null);
+    router.refresh();
+  }
 
   async function handleGenerate(params: GenerateRequest) {
+    if (!isAuthenticated) {
+      router.push("/auth/login");
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setData(null);
@@ -22,10 +46,20 @@ export default function Home() {
       const result = await generateQuestions(params);
       setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      if (err instanceof ApiError && err.statusCode === 401) {
+        setError("Session expired. Please login again.");
+        setIsAuthenticated(false);
+        removeToken();
+      } else {
+        setError(err instanceof Error ? err.message : "Something went wrong");
+      }
     } finally {
       setLoading(false);
     }
+  }
+
+  if (authLoading) {
+    return null; // Or a spinner
   }
 
   return (
@@ -35,10 +69,45 @@ export default function Home() {
       <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent pointer-events-none" />
 
       <div className="relative z-10 mx-auto max-w-5xl px-6 py-12 md:py-24">
+
+        {/* Auth Navigation */}
+        <div className="absolute top-6 right-6">
+          {isAuthenticated ? (
+            <button
+              onClick={handleLogout}
+              className="text-sm font-medium text-slate-600 hover:text-slate-900"
+            >
+              Sign out
+            </button>
+          ) : (
+            <Link
+              href="/auth/login"
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              Sign in
+            </Link>
+          )}
+        </div>
+
         <PageHeader />
 
         <div className="mt-16">
-          <GenerateForm onGenerate={handleGenerate} isLoading={loading} />
+          {!isAuthenticated ? (
+            <div className="text-center rounded-lg border border-slate-200 bg-slate-50/50 p-8">
+              <h3 className="text-lg font-medium text-slate-900">Authentication Required</h3>
+              <p className="mt-2 text-slate-600">Please sign in to generate questions.</p>
+              <div className="mt-4">
+                <Link
+                  href="/auth/login"
+                  className="inline-flex justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                >
+                  Sign in to Continue
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <GenerateForm onGenerate={handleGenerate} isLoading={loading} />
+          )}
         </div>
 
         {error && (

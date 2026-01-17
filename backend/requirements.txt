@@ -3,3 +3,8 @@ uvicorn[standard]
 pydantic
 pydantic-settings
 python-multipart
+sqlalchemy
+python-jose[cryptography]
+passlib[argon2]
+argon2-cffi
+slowapi
