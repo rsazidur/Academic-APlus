@@ -44,3 +44,11 @@ export interface User {
   role: string;
 }
 
+export interface Upload {
+  id: number;
+  course: string;
+  chapter: string;
+  visibility: string;
+  filename: string;
+}
+

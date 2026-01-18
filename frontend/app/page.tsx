@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "./components/PageHeader";
 import { GenerateForm } from "./components/GenerateForm";
+import { UploadSection } from "./components/UploadSection";
 import { ResultsSection } from "./components/ResultsSection";
 import { Alert } from "./components/ui/Alert";
 import { generateQuestions, getToken, removeToken, ApiError } from "./lib/api";
@@ -106,7 +107,19 @@ export default function Home() {
               </div>
             </div>
           ) : (
-            <GenerateForm onGenerate={handleGenerate} isLoading={loading} />
+            <>
+              {/* Generation Form */}
+              <section>
+                <h2 className="text-xl font-semibold text-white mb-6">Generate Questions</h2>
+                <GenerateForm onGenerate={handleGenerate} isLoading={loading} />
+              </section>
+
+              {/* Uploads Section */}
+              <section className="mt-16">
+                <h2 className="text-xl font-semibold text-white mb-6">Manage Material</h2>
+                <UploadSection />
+              </section>
+            </>
           )}
         </div>
 

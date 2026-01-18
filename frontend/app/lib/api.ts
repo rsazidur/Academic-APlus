@@ -134,3 +134,7 @@ export async function generateQuestions(
   });
 }
 
+
+export async function getMyUploads(): Promise<import("../types").Upload[]> {
+  return fetchWithAuth("/uploads/mine");
+}
