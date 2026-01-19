@@ -1,6 +1,6 @@
 import type { GenerateRequest, GenerateResponse, LoginRequest, RegisterRequest, AuthResponse, User } from "@/app/types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export class ApiError extends Error {
   constructor(message: string, public statusCode?: number) {
@@ -137,7 +137,7 @@ export async function getMyUploads(): Promise<import("../types").Upload[]> {
 export async function uploadOfficial(course: string, chapter: string, file: File, adminKey: string) {
   const formData = new FormData();
   formData.append("file", file);
-  
+
   const qs = new URLSearchParams({ course, chapter }); // visibility=official handled by endpoint
   const response = await fetch(`${API_BASE_URL}/uploads/official?${qs}`, {
     method: "POST",

@@ -19,6 +19,7 @@ class Upload(Base):
     visibility = Column(String, default="private")  # "private" | "public" | "official"
     filename = Column(String, nullable=False)
     stored_path = Column(String, nullable=False)
+    extracted_text_path = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class SiteVisit(Base):

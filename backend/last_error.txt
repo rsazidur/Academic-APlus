@@ -1,2 +1,0 @@
-Register Error: 500 Internal Server Error
-Login Error: 401 {"detail":"Invalid email or password"}

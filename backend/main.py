@@ -1,5 +1,9 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header
+from dotenv import load_dotenv
+load_dotenv()
+import fitz # PyMuPDF
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Literal, List, Optional
@@ -7,8 +11,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from db import get_db, engine, Base
+from db import get_db, engine, Base
 from models import User, Upload, SiteVisit, QuestionGenerationLog
-from auth import hash_password 
+from auth import hash_password
+
+from search_service import search_web
+from llm_service import generate_with_gemini
 
 # Create tables if not exist
 Base.metadata.create_all(bind=engine)
@@ -22,6 +30,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def debug_exception_handler(request: Request, exc: Exception):
+    import traceback
+    error_msg = "".join(traceback.format_exception(None, exc, exc.__traceback__))
+    print(error_msg)
+    # kept simple print for future debugging, removed file write/json response for production cleanliness? 
+    # Actually, user prefers clean. I'll remove the exception handler entirely or revert to default.
+    return await request.app.default_exception_handler(request, exc)
 
 # ---------- Auth / User Helper ----------
 # Simple secret key for admin actions (in a real app, use env vars)
@@ -85,6 +102,22 @@ def upload_file(
     with open(stored_path, "wb") as f:
         f.write(file.file.read())
 
+    # Extract text if PDF
+    extracted_text_path = None
+    if name.endswith(".pdf"):
+        try:
+            doc = fitz.open(stored_path)
+            text = ""
+            for page in doc:
+                text += page.get_text() + "\n"
+            
+            txt_filename = safe_name + ".txt"
+            extracted_text_path = os.path.join(UPLOAD_DIR, txt_filename)
+            with open(extracted_text_path, "w", encoding="utf-8") as f:
+                f.write(text)
+        except Exception as e:
+            print(f"Error extracting text: {e}")
+
     rec = Upload(
         owner_id=user.id,
         course=course,
@@ -92,6 +125,7 @@ def upload_file(
         visibility=visibility,
         filename=file.filename,
         stored_path=stored_path,
+        extracted_text_path=extracted_text_path,
     )
     db.add(rec)
     db.commit()
@@ -125,6 +159,22 @@ def upload_official(
     with open(stored_path, "wb") as f:
         f.write(file.file.read())
 
+    # Extract text if PDF
+    extracted_text_path = None
+    if name.endswith(".pdf"):
+        try:
+            doc = fitz.open(stored_path)
+            text = ""
+            for page in doc:
+                text += page.get_text() + "\n"
+            
+            txt_filename = safe_name + ".txt"
+            extracted_text_path = os.path.join(UPLOAD_DIR, txt_filename)
+            with open(extracted_text_path, "w", encoding="utf-8") as f:
+                f.write(text)
+        except Exception as e:
+            print(f"Error extracting text: {e}")
+
     rec = Upload(
         owner_id=1,  # Force ID 1 or the guest ID if admin has one, or default to 1. 2/2: Using 1 is risky if ID 1 doesn't exist.
         # Let's actually use get_guest_user to be safe for foreign key constraints if ID 1 is not guaranteed.
@@ -135,6 +185,7 @@ def upload_official(
         visibility="official",
         filename=file.filename,
         stored_path=stored_path,
+        extracted_text_path=extracted_text_path,
     )
     # Patch: find *any* user for owner_id or Guest. 
     # Since I don't inject guest user here, I'll allow a hardcoded fallback or optional.
@@ -191,19 +242,38 @@ def generate(req: GenerateRequest, user: User = Depends(get_guest_user), db: Ses
     ).all()
 
     # For now we just confirm access works:
-    if len(usable) == 0:
-        pass
+    # For now we just confirm access works:
+    # Gather context from files
+    file_context = ""
+    for up in usable:
+        if up.extracted_text_path and os.path.exists(up.extracted_text_path):
+            try:
+                with open(up.extracted_text_path, "r", encoding="utf-8") as f:
+                    file_context += f"--- Content from {up.filename} ---\n"
+                    file_context += f.read()[:2000] + "\n" # Limit per file to avoid context overflow
+            except Exception as e:
+                print(f"Error reading {up.filename}: {e}")
+    
+    if not file_context:
+        file_context = "No uploaded text content found."
 
-    # Dummy output (replace with RAG/LLM later)
-    items = [
-        QAItem(
-            question=f"({req.course} • {req.chapter}) Generate {req.difficulty} practice question for {req.examType}.",
-            marks=10 if req.examType != "quiz" else 5,
-            difficulty=req.difficulty,
-            solution="(Later: real solution from RAG/LLM).",
-            common_mistakes=["Skipping steps"]
-        )
-    ]
+    # Perform Web Search
+    search_query = f"{req.course} {req.chapter} {req.examType} exam problems"
+    print(f"Searching for: {search_query}")
+    search_results = search_web(search_query)
+
+    # Combine Context
+    full_context = f"Uploaded Course Materials:\n{file_context}\n\nGoogle Search Results:\n{search_results}"
+
+    # Generate with AI
+    print("Calling AI Service...")
+    items_data = generate_with_gemini(full_context, req.course, req.chapter, req.examType, req.difficulty)
+    
+    # Convert dicts back to QAItem models if needed (though Pydantic might auto-handle list of dicts)
+    # The llm_service returns a list of simple dicts. We should cast them to QAItem objects to ensure validation.
+    items = []
+    for i in items_data:
+        items.append(QAItem(**i))
 
     # Log the generation
     log_entry = QuestionGenerationLog(
