@@ -8,7 +8,7 @@ import { GenerateForm } from "./components/GenerateForm";
 import { UploadSection } from "./components/UploadSection";
 import { ResultsSection } from "./components/ResultsSection";
 import { Alert } from "./components/ui/Alert";
-import { generateQuestions, getToken, removeToken, ApiError } from "./lib/api";
+import { generateQuestions, trackVisit, ApiError } from "./lib/api";
 import type { GenerateRequest, GenerateResponse } from "./types";
 
 export default function Home() {
@@ -16,28 +16,12 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<GenerateResponse | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [authLoading, setAuthLoading] = useState(true);
-
   useEffect(() => {
-    // Check auth on mount
-    const token = getToken();
-    setIsAuthenticated(!!token);
-    setAuthLoading(false);
+    // Track site visit
+    trackVisit().catch(err => console.error("Tracking failed", err));
   }, []);
 
-  function handleLogout() {
-    removeToken();
-    setIsAuthenticated(false);
-    setData(null);
-    router.refresh();
-  }
-
   async function handleGenerate(params: GenerateRequest) {
-    if (!isAuthenticated) {
-      router.push("/auth/login");
-      return;
-    }
 
     setLoading(true);
     setError(null);
@@ -48,9 +32,9 @@ export default function Home() {
       setData(result);
     } catch (err) {
       if (err instanceof ApiError && err.statusCode === 401) {
-        setError("Session expired. Please login again.");
-        setIsAuthenticated(false);
-        removeToken();
+        setError("Session expired or unauthorized generation.");
+        // setIsAuthenticated(false);
+        // removeToken();
       } else {
         setError(err instanceof Error ? err.message : "Something went wrong");
       }
@@ -59,9 +43,6 @@ export default function Home() {
     }
   }
 
-  if (authLoading) {
-    return null; // Or a spinner
-  }
 
   return (
     <main className="min-h-screen relative bg-background selection:bg-primary/20 selection:text-primary">
@@ -71,56 +52,31 @@ export default function Home() {
 
       <div className="relative z-10 mx-auto max-w-5xl px-6 py-12 md:py-24">
 
-        {/* Auth Navigation */}
+        {/* Admin Navigation 
         <div className="absolute top-6 right-6">
-          {isAuthenticated ? (
-            <button
-              onClick={handleLogout}
-              className="text-sm font-medium text-slate-600 hover:text-slate-900"
-            >
-              Sign out
-            </button>
-          ) : (
-            <Link
-              href="/auth/login"
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
-            >
-              Sign in
-            </Link>
-          )}
+          <Link
+            href="/admin"
+            className="text-sm font-medium text-slate-500 hover:text-indigo-600 transition-colors"
+          >
+            Admin
+          </Link>
         </div>
+        */}
 
         <PageHeader />
 
         <div className="mt-16">
-          {!isAuthenticated ? (
-            <div className="text-center rounded-lg border border-slate-200 bg-slate-50/50 p-8">
-              <h3 className="text-lg font-medium text-slate-900">Authentication Required</h3>
-              <p className="mt-2 text-slate-600">Please sign in to generate questions.</p>
-              <div className="mt-4">
-                <Link
-                  href="/auth/login"
-                  className="inline-flex justify-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                >
-                  Sign in to Continue
-                </Link>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Generation Form */}
-              <section>
-                <h2 className="text-xl font-semibold text-white mb-6">Generate Questions</h2>
-                <GenerateForm onGenerate={handleGenerate} isLoading={loading} />
-              </section>
+          {/* Generation Form */}
+          <section>
+            <h2 className="text-xl font-semibold text-white mb-6">Generate Questions</h2>
+            <GenerateForm onGenerate={handleGenerate} isLoading={loading} />
+          </section>
 
-              {/* Uploads Section */}
-              <section className="mt-16">
-                <h2 className="text-xl font-semibold text-white mb-6">Manage Material</h2>
-                <UploadSection />
-              </section>
-            </>
-          )}
+          {/* Uploads Section */}
+          <section className="mt-16">
+            <h2 className="text-xl font-semibold text-white mb-6">Manage Material</h2>
+            <UploadSection />
+          </section>
         </div>
 
         {error && (

@@ -20,3 +20,18 @@ class Upload(Base):
     filename = Column(String, nullable=False)
     stored_path = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class SiteVisit(Base):
+    __tablename__ = "site_visits"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    # Optional: store crude location or just count
+    meta_info = Column(String, nullable=True)
+
+class QuestionGenerationLog(Base):
+    __tablename__ = "question_generation_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    course = Column(String, nullable=True)
+    chapter = Column(String, nullable=True)
+    exam_type = Column(String, nullable=True)

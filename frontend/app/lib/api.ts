@@ -73,25 +73,20 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
   return response.json();
 }
 
-// --- Auth Endpoints ---
+// --- Stats ---
 
-export async function login(data: LoginRequest): Promise<AuthResponse> {
-  return fetchWithAuth("/auth/login", {
-    method: "POST",
-    body: JSON.stringify(data),
+export async function trackVisit() {
+  return fetchWithAuth("/track-visit", { method: "POST" });
+}
+
+export async function getStats(adminKey: string) {
+  return fetchWithAuth("/admin/stats", {
+    headers: { "X-Admin-Key": adminKey }
   });
 }
 
-export async function register(data: RegisterRequest): Promise<AuthResponse> {
-  return fetchWithAuth("/auth/register", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-}
-
-export async function getMe(): Promise<User> {
-  return fetchWithAuth("/me");
-}
+// --- Auth Endpoints (Deprecated/Removed) ---
+// Login/Register removed.
 
 // --- Uploads ---
 
@@ -137,4 +132,24 @@ export async function generateQuestions(
 
 export async function getMyUploads(): Promise<import("../types").Upload[]> {
   return fetchWithAuth("/uploads/mine");
+}
+
+export async function uploadOfficial(course: string, chapter: string, file: File, adminKey: string) {
+  const formData = new FormData();
+  formData.append("file", file);
+  
+  const qs = new URLSearchParams({ course, chapter }); // visibility=official handled by endpoint
+  const response = await fetch(`${API_BASE_URL}/uploads/official?${qs}`, {
+    method: "POST",
+    headers: {
+      "X-Admin-Key": adminKey
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const txt = await response.text();
+    throw new ApiError(txt, response.status);
+  }
+  return response.json();
 }

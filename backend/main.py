@@ -1,14 +1,14 @@
 import os
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel
 from typing import Literal, List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from db import get_db, engine, Base
-from models import User, Upload
-from auth import hash_password, verify_password, create_access_token, decode_token
+from models import User, Upload, SiteVisit, QuestionGenerationLog
+from auth import hash_password 
 
 # Create tables if not exist
 Base.metadata.create_all(bind=engine)
@@ -23,64 +23,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+# ---------- Auth / User Helper ----------
+# Simple secret key for admin actions (in a real app, use env vars)
+ADMIN_SECRET_KEY = "key"
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "private_uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# ---------- Auth schemas ----------
-class RegisterRequest(BaseModel):
-    email: str
-    password: str
+def get_guest_user(db: Session = Depends(get_db)) -> User:
+    guest = db.query(User).filter(User.email == "guest@example.com").first()
+    if not guest:
+        # Create a persistent guest user
+        guest = User(email="guest@example.com", password_hash="guest_no_login", role="student")
+        db.add(guest)
+        db.commit()
+        db.refresh(guest)
+    return guest
 
-class LoginRequest(BaseModel):
-    email: str
-    password: str
+def verify_admin_key(x_admin_key: str = Header(None, alias="X-Admin-Key")):
+    if x_admin_key != ADMIN_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid or missing Admin Key")
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
-    try:
-        payload = decode_token(token)
-        user_id = int(payload.get("sub"))
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
-
-def require_admin(user: User):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
-
-# ---------- Auth routes ----------
-@app.post("/auth/register", response_model=TokenResponse)
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == req.email).first():
-        raise HTTPException(status_code=400, detail="Email already registered")
-
-    user = User(email=req.email, password_hash=hash_password(req.password), role="student")
-    db.add(user)
+# ---------- Stats / Tracking Route ----------
+@app.post("/track-visit")
+def track_visit(db: Session = Depends(get_db)):
+    # Simple timestamp-based logging
+    visit = SiteVisit()
+    db.add(visit)
     db.commit()
-    db.refresh(user)
-    token = create_access_token({"sub": str(user.id)})
-    return TokenResponse(access_token=token)
+    return {"ok": True}
 
-@app.post("/auth/login", response_model=TokenResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == req.email).first()
-    if not user or not verify_password(req.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token({"sub": str(user.id)})
-    return TokenResponse(access_token=token)
-
-@app.get("/me")
-def me(user: User = Depends(get_current_user)):
-    return {"id": user.id, "email": user.email, "role": user.role}
+@app.get("/admin/stats")
+def get_stats(db: Session = Depends(get_db), _ = Depends(verify_admin_key)):
+    visits = db.query(SiteVisit).count()
+    questions = db.query(QuestionGenerationLog).count()
+    return {
+        "total_visits": visits,
+        "questions_generated": questions
+    }
 
 # ---------- Upload routes ----------
 @app.post("/uploads/upload")
@@ -89,7 +69,7 @@ def upload_file(
     chapter: str,
     visibility: Literal["private","public"] = "private",
     file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_guest_user),
     db: Session = Depends(get_db),
 ):
     # Basic file type restriction
@@ -120,7 +100,7 @@ def upload_file(
     return {"ok": True, "upload_id": rec.id}
 
 @app.get("/uploads/mine")
-def list_my_uploads(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_my_uploads(user: User = Depends(get_guest_user), db: Session = Depends(get_db)):
     rows = db.query(Upload).filter(Upload.owner_id == user.id).order_by(Upload.created_at.desc()).all()
     return [{"id": r.id, "course": r.course, "chapter": r.chapter, "visibility": r.visibility, "filename": r.filename} for r in rows]
 
@@ -130,11 +110,10 @@ def upload_official(
     course: str,
     chapter: str,
     file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
+    # This is an admin endpoint, renamed or kept, but with Key protection
+    _: bool = Depends(verify_admin_key),
     db: Session = Depends(get_db),
 ):
-    require_admin(user)
-
     allowed = (".pdf", ".docx", ".txt")
     name = file.filename.lower()
     if not name.endswith(allowed):
@@ -147,13 +126,30 @@ def upload_official(
         f.write(file.file.read())
 
     rec = Upload(
-        owner_id=user.id,  # admin user
+        owner_id=1,  # Force ID 1 or the guest ID if admin has one, or default to 1. 2/2: Using 1 is risky if ID 1 doesn't exist.
+        # Let's actually use get_guest_user to be safe for foreign key constraints if ID 1 is not guaranteed.
+        # Or better: fetch ANY user or the guest user.
+        # But wait, Upload requires owner_id. "Admin" uploads might as well be owned by the guest "system account" or similar.
         course=course,
         chapter=chapter,
         visibility="official",
         filename=file.filename,
         stored_path=stored_path,
     )
+    # Patch: find *any* user for owner_id or Guest. 
+    # Since I don't inject guest user here, I'll allow a hardcoded fallback or optional.
+    # To be safe, let's just query guest user inline or use a constant if we know it.
+    # I'll rely on the fact that guest user creation in other calls (or startup?) ensures ID exists?
+    # No. Let's make it robust.
+    guest = db.query(User).filter(User.email == "guest@example.com").first()
+    if not guest:
+         # Create on the fly if admin uploads before any student visits (unlikely but possible)
+         guest = User(email="guest@example.com", password_hash="guest_no_login", role="student")
+         db.add(guest)
+         db.commit()
+         db.refresh(guest)
+    rec.owner_id = guest.id
+    
     db.add(rec)
     db.commit()
     db.refresh(rec)
@@ -183,7 +179,7 @@ class GenerateResponse(BaseModel):
     items: List[QAItem]
 
 @app.post("/generate", response_model=GenerateResponse)
-def generate(req: GenerateRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def generate(req: GenerateRequest, user: User = Depends(get_guest_user), db: Session = Depends(get_db)):
     # Only use:
     # - user's private/public uploads
     # - official uploads (admin-curated)
@@ -195,9 +191,7 @@ def generate(req: GenerateRequest, user: User = Depends(get_current_user), db: S
     ).all()
 
     # For now we just confirm access works:
-    # Later: you will read these files and run RAG on them.
     if len(usable) == 0:
-        # Still allow generation if no files (or block—your choice)
         pass
 
     # Dummy output (replace with RAG/LLM later)
@@ -210,5 +204,14 @@ def generate(req: GenerateRequest, user: User = Depends(get_current_user), db: S
             common_mistakes=["Skipping steps"]
         )
     ]
+
+    # Log the generation
+    log_entry = QuestionGenerationLog(
+        course=req.course,
+        chapter=req.chapter,
+        exam_type=req.examType
+    )
+    db.add(log_entry)
+    db.commit()
 
     return GenerateResponse(course=req.course, chapter=req.chapter, examType=req.examType, items=items)
